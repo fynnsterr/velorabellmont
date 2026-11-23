@@ -19,7 +19,7 @@ $event = json_decode((string) $body, true);
 if (is_array($event) && ($event['event'] ?? '') === 'charge.success') {
     $ref = (string) ($event['data']['reference'] ?? '');
     $order = $ref !== '' ? find_order_by_ref($ref) : null;
-    if ($order && $order['payment_status'] !== 'paid') {
+    if ($order && !order_is_paid($order)) {
         paystack_verify_order($order);
     }
 }
