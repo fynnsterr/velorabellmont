@@ -38,12 +38,15 @@ function paystack_request(string $method, string $path, ?array $body = null): ?a
 
 function paystack_initialize(array $order): ?string
 {
+
+    $channels = in_array($order['pay_channel'] ?? '', ['card', 'mobile_money'], true) ? [$order['pay_channel']] : ['card', 'mobile_money'];
     $res = paystack_request('POST', '/transaction/initialize', [
         'email' => $order['email'],
         'amount' => paystack_amount((float) $order['total']),
         'currency' => cfg('site.currency', 'GHS'),
         'reference' => $order['order_ref'],
         'callback_url' => abs_url('paystack_callback.php'),
+        'channels' => $channels,
         'metadata' => ['order_id' => (int) $order['id'], 'customer' => $order['full_name']],
     ]);
     if ($res && !empty($res['status']) && !empty($res['data']['authorization_url'])) {
@@ -82,7 +85,8 @@ function find_order_by_ref(string $ref): ?array
 function start_payment(array $order): void
 {
     if (!paystack_enabled()) {
-        redirect('pay_demo.php?ref=' . urlencode($order['order_ref']));
+        flash('error', 'Online payment is not available right now. Contact us to arrange payment for your order.');
+        redirect('order.php?ref=' . urlencode($order['order_ref']));
     }
     $auth = paystack_initialize($order);
     if ($auth) {
@@ -92,14 +96,23 @@ function start_payment(array $order): void
     redirect('order.php?ref=' . urlencode($order['order_ref']));
 }
 
-function user_order(string $ref, array $user): ?array
+function user_order(string $ref, ?array $user): ?array
 {
     $order = find_order_by_ref($ref);
     if (!$order) {
         return null;
     }
-    if ($user['role'] !== 'admin' && (int) $order['user_id'] !== (int) $user['id']) {
-        return null;
+    if ($user && ($user['role'] === 'admin' || ($order['user_id'] !== null && (int) $order['user_id'] === (int) $user['id']))) {
+        return $order;
     }
-    return $order;
+    if (!empty($_SESSION['guest_orders'][$order['order_ref']])) {
+        return $order;
+    }
+    return null;
+}
+
+function remember_guest_order(string $ref): void
+{
+    $_SESSION['guest_orders'][$ref] = 1;
+    $_SESSION['guest_orders'] = array_slice($_SESSION['guest_orders'], -20, null, true);
 }
